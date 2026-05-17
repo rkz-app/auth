@@ -1,4 +1,4 @@
-package base_auth
+package auth
 
 import (
 	"github.com/techpro-studio/gohttplib/validator"

@@ -1,4 +1,4 @@
-module auth
+module github.com/rkz-app/auth
 
 go 1.25.8
 
