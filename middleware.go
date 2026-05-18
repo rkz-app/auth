@@ -48,7 +48,7 @@ func UserKeyMiddlewareFactory(useCase *UseCase, verifier RequestVerifier) gohttp
 
 			if err != nil {
 				code := UnauthorizedCodeInvalidToken
-				if errors.Is(err, jwt.ErrTokenExpired) {
+				if errors.Is(err, jwt.ErrTokenExpired) || errors.Is(err, jwt.ErrTokenSignatureInvalid) {
 					code = UnauthorizedCodeUserKeyExpired
 				}
 				UnauthorizedError(code).Write(w)
