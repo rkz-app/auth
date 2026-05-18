@@ -16,12 +16,11 @@ type UseCase struct {
 	permissionsRepository PermissionsRepository
 	addressGenerator      AddressGenerator
 	allowMultipleKeys     bool
-	sharedSecret          string
-	jwtIssuer             string
+	jwtConfig             JWTConfig
 }
 
-func NewUseCase(repository Repository, permissionsRepository PermissionsRepository, addressGenerator AddressGenerator, allowMultipleKeys bool, sharedSecret string, jwtIssuer string) *UseCase {
-	return &UseCase{repository: repository, permissionsRepository: permissionsRepository, addressGenerator: addressGenerator, allowMultipleKeys: allowMultipleKeys, sharedSecret: sharedSecret, jwtIssuer: jwtIssuer}
+func NewUseCase(repository Repository, permissionsRepository PermissionsRepository, addressGenerator AddressGenerator, allowMultipleKeys bool, jwtConfig JWTConfig) *UseCase {
+	return &UseCase{repository: repository, permissionsRepository: permissionsRepository, addressGenerator: addressGenerator, allowMultipleKeys: allowMultipleKeys, jwtConfig: jwtConfig}
 }
 
 func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, publicKey string, ephemeralPublicKey string, address string, deviceId string, expiresAt int64) (*SignInOutput, error) {
@@ -38,7 +37,7 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 		return nil, err
 	}
 	claims := jwt.MapClaims{
-		"iss": uc.jwtIssuer,
+		"iss": uc.jwtConfig.issuer,
 		"aud": userKey.ID,
 		"sub": fmt.Sprintf("%s.%s", userKey.Address, userKey.DeviceId),
 		"iat": time.Now().Unix(),
@@ -47,8 +46,8 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 	if expiresAt != zero {
 		claims["exp"] = expiresAt
 	}
-	tokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	token, err := tokenObj.SignedString([]byte(uc.sharedSecret))
+	tokenObj := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token, err := tokenObj.SignedString(uc.jwtConfig.signingKey)
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +56,10 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 
 func (uc *UseCase) GetUserKeyFromToken(ctx context.Context, token string) (*UserKey, error) {
 	tokenObj, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method.Alg() != uc.jwtConfig.signingMethod.Alg() {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return []byte(uc.sharedSecret), nil
+		return uc.jwtConfig.verificationKey, nil
 	})
 
 	if err != nil {
@@ -74,7 +73,7 @@ func (uc *UseCase) GetUserKeyFromToken(ctx context.Context, token string) (*User
 	if err != nil {
 		return nil, err
 	}
-	if issuer != uc.jwtIssuer {
+	if issuer != uc.jwtConfig.issuer {
 		return nil, fmt.Errorf("invalid token")
 	}
 
