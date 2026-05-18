@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"github.com/golang-jwt/jwt/v5"
@@ -22,6 +23,8 @@ type UseCase struct {
 func NewUseCase(repository Repository, permissionsRepository PermissionsRepository, addressGenerator AddressGenerator, allowMultipleKeys bool, jwtConfig JWTConfig) *UseCase {
 	return &UseCase{repository: repository, permissionsRepository: permissionsRepository, addressGenerator: addressGenerator, allowMultipleKeys: allowMultipleKeys, jwtConfig: jwtConfig}
 }
+
+var ErrAlgoNotSupported = errors.New("algorithm not supported")
 
 func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, publicKey string, ephemeralPublicKey string, address string, deviceId string, expiresAt int64) (*SignInOutput, error) {
 	if !uc.allowMultipleKeys {
@@ -47,7 +50,7 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 		claims["exp"] = expiresAt
 	}
 	tokenObj := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	token, err := tokenObj.SignedString(uc.jwtConfig.signingKey)
+	token, err := tokenObj.SignedString(uc.jwtConfig.mainMethod.signingKey)
 	if err != nil {
 		return nil, err
 	}
@@ -56,10 +59,15 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 
 func (uc *UseCase) GetUserKeyFromToken(ctx context.Context, token string) (*UserKey, error) {
 	tokenObj, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != uc.jwtConfig.signingMethod.Alg() {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		if token.Method.Alg() == uc.jwtConfig.mainMethod.signingMethod.Alg() {
+			return uc.jwtConfig.mainMethod.verificationKey, nil
 		}
-		return uc.jwtConfig.verificationKey, nil
+		if uc.jwtConfig.legacyMethod != nil {
+			if token.Method.Alg() == uc.jwtConfig.legacyMethod.signingMethod.Alg() {
+				return uc.jwtConfig.legacyMethod.verificationKey, nil
+			}
+		}
+		return nil, ErrAlgoNotSupported
 	})
 
 	if err != nil {
