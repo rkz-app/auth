@@ -49,8 +49,9 @@ func (uc *UseCase) SignInWithPublicKeyAddressExpires(ctx context.Context, public
 	if expiresAt != zero {
 		claims["exp"] = expiresAt
 	}
-	tokenObj := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	token, err := tokenObj.SignedString(uc.jwtConfig.mainMethod.signingKey)
+	currentMethod := uc.jwtConfig.mainMethod
+	tokenObj := jwt.NewWithClaims(currentMethod.signingMethod, claims)
+	token, err := tokenObj.SignedString(currentMethod.signingKey)
 	if err != nil {
 		return nil, err
 	}
